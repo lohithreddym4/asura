@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { generatePlan } from "../src/planner/gemini.js";
+import { generatePlan } from "../src/planner/model.js";
 import { executeCommands } from "../src/executor/executeCommands.js";
 import { applyFileActions } from "../src/fs/applyFiles.js";
 import { MemoryStore } from "../src/memory/store.js";
