@@ -33,7 +33,7 @@
   "bugs": {
     "url": "https://github.com/lohithreddym4/asura/issues"
   },
-  "homepage": "https://github.com/lohithreddym4/asura#readme", 
+  "homepage": "https://github.com/lohithreddym4/asura#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "@google/generative-ai": "^0.24.1",
@@ -44,6 +44,7 @@
     "diff": "^8.0.3",
     "dotenv": "^17.2.3",
     "groq-sdk": "^0.37.0",
+    "inquirer": "^13.2.4",
     "openai": "^6.21.0",
     "zod": "^4.3.6"
   }

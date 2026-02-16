@@ -2,235 +2,243 @@
 
 Asura Agent is a schema-validated autonomous CLI automation engine that converts natural language instructions into structured execution plans and safely applies them to your local project.
 
-It enforces strict separation between planning and execution, validates all plans against a schema, and protects your system with guarded shell execution and filesystem safety controls.
+It separates planning from execution, enforces strict JSON validation, and protects your system with guarded filesystem and shell command controls.
+
+Asura is designed to constrain probabilistic LLM output inside deterministic guardrails.
 
 ---
 
-## What It Does
+## 🚀 Installation
 
-Asura takes a single instruction:
+Install globally:
 
-```
-asura "create a Button component in src/components"
-```
-
-And executes a controlled pipeline:
-
-1. Scans project structure (once per session)
-2. Merges context with scoped memory
-3. Generates a strict JSON execution plan via LLM
-4. Validates the plan against a schema
-5. Shows the plan output
-6. Applies filesystem mutations (diff-based)
-7. Executes shell commands (risk-gated)
-8. Updates internal memory state
-
-No direct free-form execution.
-Everything goes through a validated plan.
+npm install -g asura-agent
 
 ---
 
-## Core Capabilities
+## ⚙️ Initial Setup
 
-### 1. Structured Planning Engine
+Before using Asura, initialize your AI provider:
 
-* All plans must conform to a strict JSON schema
-* Invalid plans are retried automatically
-* Clarification loop if intent is ambiguous
-* No nested clarification allowed
+asura init
 
-### 2. Filesystem Safety
+You will be prompted to:
 
-* Explicit create / modify / rename / delete actions
-* Diff preview before writes
-* Delete ambiguity guard
-* Confirmation for destructive actions
-* Undo support
+- Select an AI provider (OpenAI, Groq, Gemini, Mistral, Anthropic)
+- Enter your API key (secure input)
 
-Undo example:
+You can later switch providers using:
 
-```
+asura provider
+
+Configuration is stored locally in your system user directory.
+
+---
+
+## 🧠 How It Works
+
+When you run:
+
+asura "create a React component Button"
+
+Asura executes a controlled pipeline:
+
+1. Loads project memory
+2. Scans project structure (first run only)
+3. Resolves implicit file references (e.g., “it”, “that file”)
+4. Generates a structured JSON plan via LLM
+5. Validates the plan against a strict schema
+6. Handles clarification if needed
+7. Applies filesystem changes (diff-based)
+8. Executes shell commands (risk-gated)
+9. Updates internal memory state
+
+All actions must pass validation before execution.
+
+No direct free-form execution is allowed.
+
+---
+
+## 📌 Basic Usage
+
+Run an instruction:
+
+asura "create a file test.js with a hello world function"
+
+Preview without applying changes:
+
+asura --dry-run "modify index.js"
+
+Auto-approve safe operations:
+
+asura --yes "install express"
+
+Undo the last filesystem change:
+
 asura undo
-```
 
-### 3. Guarded Shell Execution
+---
 
-* Command risk classification (low / medium / high)
-* Explicit confirmation for high-risk commands
-* Blocks shell chaining (`&&`, `|`, `;`)
-* Blocks destructive patterns:
+## 🧠 Memory System
 
-  * rm -rf
-  * curl | sh
-  * mkfs
-  * dd
-  * format
-  * etc.
+Asura maintains project-scoped memory, including:
 
-### 4. Memory-Scoped Planning
+- known directories
+- recent files
+- last modified file
+- framework heuristics
+- styling heuristics
 
-Asura maintains local project memory including:
+List stored memory:
 
-* known directories
-* recent files
-* last modified file
-* detected framework (heuristic)
-* styling conventions
-
-Supports:
-
-```
 asura memory list
+
+Clear memory:
+
 asura memory clear
-```
 
-Implicit references are resolved:
+Implicit references are supported:
 
-```
 asura "modify it"
-```
 
-“it” resolves to last_file in memory.
+“it” resolves to the last modified file.
 
-### 5. Clarification Engine
+---
 
-If a request is ambiguous:
+## 🔐 Safety Model
 
-```
+Asura enforces strict execution controls:
+
+### Filesystem Safety
+- Explicit create / modify / rename / delete actions
+- Diff preview before writes
+- Delete ambiguity guard
+- Confirmation required for destructive actions
+- Undo support
+
+### Shell Execution Safety
+- Command risk classification (low / medium / high)
+- Confirmation required for high-risk commands
+- Blocks command chaining (&&, |, ;)
+- Blocks destructive patterns such as:
+  - rm -rf
+  - curl | sh
+  - mkfs
+  - dd
+  - format
+  - reboot / shutdown
+
+### Clarification Engine
+If an instruction is ambiguous:
+
 ❓ Clarification needed:
 Which file do you want to modify?
-```
 
-User response merges with original intent.
-Execution is paused until clarified.
-
----
-
-## Installation
-
-```
-npm install -g asura-agent
-```
+Execution pauses until clarified.
+Nested clarification is prevented.
 
 ---
 
-## Usage
+## 🏗 Architecture Overview
 
-Basic:
+Asura follows a deterministic control flow:
 
-```
-asura "create a React component Button"
-```
+User Input  
+→ Memory Context Merge  
+→ Project Scan  
+→ Plan Generation (LLM)  
+→ Schema Validation (Zod)  
+→ Clarification Handling  
+→ Filesystem Executor  
+→ Command Executor  
+→ Memory Extraction  
 
-Flags:
+The planning engine is the only component allowed to generate execution plans.
 
-```
---dry-run   Preview changes without applying
---yes       Auto-approve safe operations
-```
-
-Undo:
-
-```
-asura undo
-```
-
-Memory management:
-
-```
-asura memory list
-asura memory clear
-```
-
----
-
-## Architecture Overview
-
-Asura follows a deterministic control pipeline:
-
-User Input
-→ Context Merge
-→ Project Scan
-→ Plan Generation (LLM)
-→ Schema Validation (Zod)
-→ Clarification Handling
-→ Filesystem Executor
-→ Command Executor
-→ Memory Extraction
-
-The planning engine is the only component allowed to create plans.
 Execution never bypasses validation.
 
 ---
 
-## Plan Schema
+## 📦 Plan Schema (Example)
 
-Every instruction is converted into a structured object:
+Every instruction becomes structured JSON:
 
-```json
 {
-  "intent": "string",
-  "summary": "string",
+  "intent": "create_file",
+  "summary": "Create test.js file",
   "clarification": null,
   "files": [
-    { "action": "create", "path": "file", "content": "..." }
+    {
+      "action": "create",
+      "path": "test.js",
+      "content": "console.log('Hello world');"
+    }
   ],
-  "commands": [
-    { "cmd": "npm install react", "risk": "medium" }
-  ],
+  "commands": [],
   "refusal": null
 }
-```
 
-Plans that fail validation are retried automatically.
-
----
-
-## Supported AI Providers
-
-Set via environment variable:
-
-```
-AI_PROVIDER=openai
-```
-
-Supported:
-
-* openai
-* groq
-* gemini
-* mistral
-* anthropic
-
-API keys must be configured in `.env`.
+Plans that fail schema validation are retried automatically.
 
 ---
 
-## Safety Model
+## 🛠 Configuration Commands
 
-Asura enforces:
+Initialize provider:
 
-* No implicit filesystem mutation
-* No shell chaining
-* Double-quoted shell arguments
-* Explicit confirmation for high-risk commands
-* Explicit delete intent validation
-* Undo support
-* Controlled clarification loop
-* Scoped memory persistence
+asura init
 
-It is designed to constrain probabilistic LLM output inside deterministic guardrails.
+Change provider:
+
+asura provider
+
+Manual config (advanced):
+
+asura config set <key> <value>
 
 ---
 
-## Requirements
+## 🌐 Supported AI Providers
+
+- OpenAI
+- Groq
+- Gemini
+- Mistral
+- Anthropic
+
+Provider and API keys are stored locally after initialization.
+
+---
+
+## 🧪 Advanced Flags
+
+--dry-run  
+Preview file and command changes without executing them.
+
+--yes  
+Auto-approve safe operations.
+
+---
+
+## 🖥 Requirements
 
 Node.js 18+
 
 ---
 
-## License
+## 🔍 Design Principles
 
-MIT
+- Deterministic validation before execution
+- Explicit separation between planning and mutation
+- Memory-scoped contextual planning
+- Controlled command execution
+- Defensive error handling
+- No implicit destructive operations
+
+Asura is built to reduce unsafe automation while preserving developer velocity.
 
 ---
+
+## 📜 License
+
+MIT

@@ -6,7 +6,9 @@ import { executeCommands } from "../src/executor/executeCommands.js";
 import { applyFileActions } from "../src/fs/applyFiles.js";
 import { MemoryStore } from "../src/memory/store.js";
 import { extractMemoryFromPlan } from "../src/memory/extract.js";
+import { getConfig, setConfig } from "../src/config/store.js";
 import { scanProject } from "../src/memory/scan.js";
+import inquirer from "inquirer";
 
 
 
@@ -180,6 +182,95 @@ program
       process.exit(1);
     }
   });
+  program
+  .command("config")
+  .description("Manage Asura configuration")
+  .command("set <key> <value>")
+  .description("Set configuration value")
+  .action((key, value) => {
+    setConfig(key, value);
+    console.log(`✅ Config updated: ${key}`);
+  });
+
+
+program
+  .command("init")
+  .description("Initialize Asura configuration")
+  .action(async () => {
+    console.log("Welcome to Asura! Let's set up your AI provider.");
+    console.log("Asura supports AI providers like OpenAI, Groq, Gemini, Mistral, and Anthropic.");
+    const { provider, apiKey } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "provider",
+        message: "Select AI provider:",
+        choices: [
+          { name: "OpenAI", value: "openai" },
+          { name: "Groq", value: "groq" },
+          { name: "Gemini", value: "gemini" },
+          { name: "Mistral", value: "mistral" },
+          { name: "Anthropic", value: "anthropic" }
+        ]
+      },
+      {
+        type: "password",
+        name: "apiKey",
+        message: "Enter your API key:",
+        mask: "*",
+        validate: (input) => {
+          if (!input || input.trim() === "") {
+            return "API key cannot be empty.";
+          }
+          return true;
+        }
+      }
+    ]);
+
+    const keyMap = {
+      openai: "openaiApiKey",
+      groq: "groqApiKey",
+      gemini: "geminiApiKey",
+      mistral: "mistralApiKey",
+      anthropic: "anthropicApiKey"
+    };
+
+    if (!keyMap[provider]) {
+      console.error("Invalid provider selection.");
+      return;
+    }
+
+    setConfig("provider", provider);
+    setConfig(keyMap[provider], apiKey);
+
+    console.log(`✅ Asura initialized successfully with ${provider}.`);
+  });
+
+  program
+  .command("provider")
+  .description("Change AI provider")
+  .action(async () => {
+    console.log("Change to AI providers like OpenAI, Groq, Gemini, Mistral, and Anthropic.");
+    console.log("Note: Make sure you have the API key for the selected provider configured through 'asura init'.");
+    const { provider } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "provider",
+        message: "Select AI provider:",
+        choices: [
+          { name: "OpenAI", value: "openai" },
+          { name: "Groq", value: "groq" },
+          { name: "Gemini", value: "gemini" },
+          { name: "Mistral", value: "mistral" },
+          { name: "Anthropic", value: "anthropic" }
+        ]
+      }
+    ]);
+
+    setConfig("provider", provider);
+    console.log(`✅ Provider set to ${provider}`);
+  });
+
+
 function looksLikePureCommand(input) {
   return /\b(git|npm|npx|pnpm|yarn|docker)\b/i.test(input);
 }
