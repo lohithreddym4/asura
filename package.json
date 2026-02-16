@@ -1,19 +1,39 @@
 {
-  "name": "ai-cli",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "asura-agent",
+  "version": "0.1.0",
+  "description": "Schema-validated autonomous CLI agent with guarded shell execution and memory-scoped planning.",
   "type": "module",
   "bin": {
-    "ai-cli": "bin/ai.js"
+    "asura": "./bin/ai.js"
   },
+  "files": [
+    "bin",
+    "src"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node bin/ai.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "keywords": [
+    "ai",
+    "cli",
+    "automation",
+    "agent",
+    "llm",
+    "developer-tools"
+  ],
+  "author": "Venkata Lohith Kumar Reddy",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lohithreddym4/asura.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lohithreddym4/asura/issues"
+  },
+  "homepage": "https://github.com/lohithreddym4/asura#readme", 
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "@google/generative-ai": "^0.24.1",
@@ -23,7 +43,6 @@
     "commander": "^14.0.3",
     "diff": "^8.0.3",
     "dotenv": "^17.2.3",
-    "grok-sdk": "^0.0.1-security",
     "groq-sdk": "^0.37.0",
     "openai": "^6.21.0",
     "zod": "^4.3.6"
