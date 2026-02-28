@@ -19,7 +19,6 @@ function initializeProvider() {
   const config = getConfig();
 
   const provider =
-    process.env.AI_PROVIDER?.toLowerCase() ||
     config.provider;
   const allowedProviders = [
     "openai",
@@ -41,11 +40,11 @@ function initializeProvider() {
   }
 
   const keyMap = {
-    openai: process.env.OPENAI_API_KEY || config.openaiApiKey,
-    groq: process.env.GROQ_API_KEY || config.groqApiKey,
-    gemini: process.env.GEMINI_API_KEY || config.geminiApiKey,
-    mistral: process.env.MISTRAL_API_KEY || config.mistralApiKey,
-    anthropic: process.env.ANTHROPIC_API_KEY || config.anthropicApiKey
+    openai: config.openaiApiKey,
+    groq:  config.groqApiKey,
+    gemini:  config.geminiApiKey,
+    mistral:  config.mistralApiKey,
+    anthropic:  config.anthropicApiKey
   };
 
   const apiKey = keyMap[provider];
