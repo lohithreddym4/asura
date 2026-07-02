@@ -26,4 +26,5 @@ test("buildRepairInstruction includes failure context and repair constraints", (
   assert.match(prompt, /Command exited with code 1/);
   assert.match(prompt, /npm install missing-package/);
   assert.match(prompt, /Do not repeat the same failing command/);
+  assert.match(prompt, /Execution environment:/);
 });

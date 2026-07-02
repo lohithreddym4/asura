@@ -21,7 +21,7 @@ const PACKAGE_MUTATION_PATTERNS = [
   /\b(npm|pnpm|yarn)\s+(install|add|update|upgrade|remove|uninstall)\b/i,
   /\b(npm|pnpm|yarn)\s+i\b/i,
   /\b(npx)\b/i,
-  /\b(pip|pip3)\s+(install|uninstall)\b/i,
+  /(^|\s|[\\/])(pip|pip3)(\.exe)?\s+(install|uninstall)\b/i,
   /\bpython\s+-m\s+pip\s+(install|uninstall)\b/i,
   /\bpoetry\s+(add|remove|install|update)\b/i,
   /\buv\s+(add|remove|pip\s+install|pip\s+uninstall)\b/i
@@ -29,34 +29,36 @@ const PACKAGE_MUTATION_PATTERNS = [
 
 const GLOBAL_PACKAGE_PATTERNS = [
   /\b(npm|pnpm|yarn)\s+.*\s(-g|--global)\b/i,
-  /\b(pip|pip3)\s+install\b.*\s(--user|--break-system-packages)\b/i
+  /(^|\s|[\\/])(pip|pip3)(\.exe)?\s+install\b.*\s(--user|--break-system-packages)\b/i
 ];
 
 export class CommandExecutionError extends Error {
-  constructor(command, message) {
+  constructor(command, message, output = "") {
     super(message);
     this.name = "CommandExecutionError";
     this.command = command;
+    this.output = output;
   }
 }
 
 export async function executeCommands(commands, { dryRun, autoYes }) {
   for (const command of commands) {
-    const risk = classifyCommandRisk(command.cmd, command.risk);
+    const cmd = normalizePlatformCommand(command.cmd);
+    const risk = classifyCommandRisk(cmd, command.risk);
 
-    console.log(`\nCommand ${chalk.cyan(command.cmd)} (${chalk.yellow(risk)})`);
+    console.log(`\nCommand ${chalk.cyan(cmd)} (${chalk.yellow(risk)})`);
 
-    if (isChained(command.cmd)) {
+    if (isChained(cmd)) {
       throw new CommandExecutionError(
-        command.cmd,
-        `Command chaining is blocked: ${command.cmd}`
+        cmd,
+        `Command chaining is blocked: ${cmd}`
       );
     }
 
-    if (isDangerousCommand(command.cmd)) {
+    if (isDangerousCommand(cmd)) {
       throw new CommandExecutionError(
-        command.cmd,
-        `Dangerous command blocked: ${command.cmd}`
+        cmd,
+        `Dangerous command blocked: ${cmd}`
       );
     }
 
@@ -74,11 +76,21 @@ export async function executeCommands(commands, { dryRun, autoYes }) {
     }
 
     try {
-      await run(normalizeQuotes(command.cmd));
+      await run(normalizeQuotes(cmd));
     } catch (err) {
-      throw new CommandExecutionError(command.cmd, err.message);
+      throw new CommandExecutionError(cmd, err.message, err.output || "");
     }
   }
+}
+
+export function normalizePlatformCommand(cmd, platform = process.platform) {
+  if (platform !== "win32") return cmd;
+
+  return cmd
+    .replace(/(^|\s)\.venv\/bin\/python(\.exe)?(?=\s|$)/gi, "$1.venv\\Scripts\\python.exe")
+    .replace(/(^|\s)\.venv\/bin\/pip(\.exe)?(?=\s|$)/gi, "$1.venv\\Scripts\\pip.exe")
+    .replace(/(^|\s)venv\/bin\/python(\.exe)?(?=\s|$)/gi, "$1venv\\Scripts\\python.exe")
+    .replace(/(^|\s)venv\/bin\/pip(\.exe)?(?=\s|$)/gi, "$1venv\\Scripts\\pip.exe");
 }
 
 export function classifyCommandRisk(cmd, modelRisk = "medium") {
@@ -107,14 +119,32 @@ function isChained(cmd) {
 
 function run(command) {
   return new Promise((resolve, reject) => {
+    let output = "";
     const proc = spawn(command, {
-      stdio: "inherit",
+      stdio: ["inherit", "pipe", "pipe"],
       shell: true
+    });
+
+    proc.stdout.on("data", chunk => {
+      const text = chunk.toString();
+      process.stdout.write(text);
+      output = trimOutput(`${output}${text}`);
+    });
+
+    proc.stderr.on("data", chunk => {
+      const text = chunk.toString();
+      process.stderr.write(text);
+      output = trimOutput(`${output}${text}`);
     });
 
     proc.on("close", code => {
       if (code !== 0) {
-        reject(new Error(`Command exited with code ${code}`));
+        const err = new Error([
+          `Command exited with code ${code}`,
+          output ? `Recent command output:\n${output}` : ""
+        ].filter(Boolean).join("\n"));
+        err.output = output;
+        reject(err);
       } else {
         resolve();
       }
@@ -124,6 +154,11 @@ function run(command) {
       reject(err);
     });
   });
+}
+
+function trimOutput(output) {
+  const max = 12000;
+  return output.length > max ? output.slice(output.length - max) : output;
 }
 
 function confirm(prompt) {

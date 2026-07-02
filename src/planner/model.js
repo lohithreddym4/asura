@@ -202,6 +202,12 @@ Fix the plan.
 Known context:
 ${memoryContext || "(none)"}
 
+Execution environment:
+- platform: ${process.platform}
+- cwd: ${process.cwd()}
+- shell: ${process.platform === "win32" ? "Windows shell / PowerShell-compatible commands" : "POSIX-compatible shell"}
+- python venv path: ${process.platform === "win32" ? ".venv\\Scripts\\python.exe and .venv\\Scripts\\pip.exe" : ".venv/bin/python and .venv/bin/pip"}
+
 Retrieved project context:
 ${ragContext}
 

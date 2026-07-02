@@ -15,6 +15,8 @@ CRITICAL RULES:
 - When modifying existing code, preserve surrounding project style, APIs, and file organization from retrieved snippets.
 - If the retrieved context shows that a requested file, symbol, or convention does not exist and the request depends on it, ask for clarification instead of inventing it.
 - Do NOT infer frameworks, languages, or tools unless explicitly stated.
+- Commands MUST match the Execution environment platform.
+- On Windows, Python virtualenv commands MUST use ".venv\\Scripts\\python.exe" and ".venv\\Scripts\\pip.exe", not ".venv/bin/python" or ".venv/bin/pip".
 - All shell commands MUST use double quotes for string arguments. Never use single quotes.
 
 

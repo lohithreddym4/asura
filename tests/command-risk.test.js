@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyCommandRisk } from "../src/executor/executeCommands.js";
+import {
+  classifyCommandRisk,
+  normalizePlatformCommand
+} from "../src/executor/executeCommands.js";
 
 test("package installs are elevated above model-provided low risk", () => {
   assert.equal(classifyCommandRisk("pip install -r requirements.txt", "low"), "medium");
   assert.equal(classifyCommandRisk("npm install express", "low"), "medium");
+  assert.equal(classifyCommandRisk(".venv\\Scripts\\pip.exe install -r requirements.txt", "low"), "medium");
 });
 
 test("global package mutations are high risk", () => {
@@ -13,4 +17,15 @@ test("global package mutations are high risk", () => {
 
 test("read-only commands can remain low risk", () => {
   assert.equal(classifyCommandRisk("git status", "low"), "low");
+});
+
+test("windows normalizes common POSIX virtualenv paths", () => {
+  assert.equal(
+    normalizePlatformCommand(".venv/bin/pip install -r requirements.txt", "win32"),
+    ".venv\\Scripts\\pip.exe install -r requirements.txt"
+  );
+  assert.equal(
+    normalizePlatformCommand(".venv/bin/python main.py", "win32"),
+    ".venv\\Scripts\\python.exe main.py"
+  );
 });
