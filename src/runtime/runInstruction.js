@@ -7,6 +7,7 @@ import { scanProject } from "../memory/scan.js";
 import { MemoryStore } from "../memory/store.js";
 import { generatePlan } from "../planner/model.js";
 import { shouldReplacePendingClarification } from "../clarification/state.js";
+import { buildRepairInstruction } from "./repair.js";
 
 function status(message, enabled) {
   if (enabled) {
@@ -37,7 +38,8 @@ export async function runInstruction(instruction, options = {}) {
     dryRun = false,
     yes = false,
     verbose = true,
-    exitOnError = false
+    exitOnError = false,
+    maxRepairAttempts = 2
   } = options;
 
   try {
@@ -112,7 +114,7 @@ export async function runInstruction(instruction, options = {}) {
     status(`Retrieved ${retrieved.length} relevant chunk(s)`, verbose);
 
     status("Generating plan with AI provider", verbose);
-    const plan = await generatePlan(instruction, memory.all(), ragContext);
+    let plan = await generatePlan(instruction, memory.all(), ragContext);
     status("Plan generated and schema-validated", verbose);
 
     if (pendingInput && looksLikePureCommand(instruction)) {
@@ -138,26 +140,33 @@ export async function runInstruction(instruction, options = {}) {
     memory.set("pending_input", "");
     memory.set("pending_question", "");
 
-    console.log(JSON.stringify(plan, null, 2));
+    const completedPlans = [];
+    let executionResult = await executePlanWithRepairs({
+      plan,
+      originalInstruction: instruction,
+      memory,
+      ragContext,
+      projectRoot,
+      dryRun,
+      yes,
+      verbose,
+      maxRepairAttempts
+    });
 
-    if (plan.files.length > 0) {
-      status(`Applying ${plan.files.length} file action(s)`, verbose);
-      await applyFileActions(plan.files, {
-        dryRun,
-        autoYes: yes
-      });
+    if (executionResult.status !== "completed") {
+      return executionResult;
     }
 
-    if (plan.commands.length > 0) {
-      status(`Executing ${plan.commands.length} command(s)`, verbose);
-      await executeCommands(plan.commands, { dryRun, autoYes: yes });
-    }
+    plan = executionResult.plan;
+    completedPlans.push(...executionResult.completedPlans);
 
     status("Updating memory", verbose);
-    const extracted = extractMemoryFromPlan(plan);
-    for (const [key, value] of Object.entries(extracted)) {
-      if (!memory.get(key)) {
-        memory.set(key, value);
+    for (const completedPlan of completedPlans) {
+      const extracted = extractMemoryFromPlan(completedPlan);
+      for (const [key, value] of Object.entries(extracted)) {
+        if (!memory.get(key)) {
+          memory.set(key, value);
+        }
       }
     }
 
@@ -169,5 +178,90 @@ export async function runInstruction(instruction, options = {}) {
       process.exit(1);
     }
     return { status: "error", error: err };
+  }
+}
+
+async function executePlanWithRepairs({
+  plan,
+  originalInstruction,
+  memory,
+  ragContext,
+  projectRoot,
+  dryRun,
+  yes,
+  verbose,
+  maxRepairAttempts
+}) {
+  const completedPlans = [];
+
+  for (let attempt = 0; attempt <= maxRepairAttempts; attempt++) {
+    if (attempt > 0) {
+      status(`Trying repaired plan (${attempt}/${maxRepairAttempts})`, verbose);
+    }
+
+    console.log(JSON.stringify(plan, null, 2));
+
+    try {
+      await executePlan(plan, {
+        projectRoot,
+        dryRun,
+        yes,
+        verbose
+      });
+      completedPlans.push(plan);
+      return { status: "completed", plan, completedPlans };
+    } catch (err) {
+      status(`Execution failed: ${err.message}`, verbose);
+
+      if (attempt >= maxRepairAttempts) {
+        console.error("Execution could not be repaired automatically.");
+        return { status: "error", error: err, plan, completedPlans };
+      }
+
+      const repairInstruction = buildRepairInstruction({
+        originalInstruction,
+        failedPlan: plan,
+        error: err,
+        attempt: attempt + 1,
+        maxAttempts: maxRepairAttempts
+      });
+
+      status("Sending execution error back to planner for repair", verbose);
+      plan = await generatePlan(repairInstruction, memory.all(), ragContext);
+      status("Repair plan generated and schema-validated", verbose);
+
+      if (plan.clarification) {
+        console.log("Clarification needed:");
+        console.log(plan.clarification);
+        memory.set("pending_input", originalInstruction);
+        memory.set("pending_question", plan.clarification);
+        return { status: "clarification_requested", plan, completedPlans };
+      }
+    }
+  }
+
+  return { status: "error", plan, completedPlans };
+}
+
+async function executePlan(plan, { projectRoot, dryRun, yes, verbose }) {
+  if (plan.files.length > 0) {
+    status(`Applying ${plan.files.length} file action(s)`, verbose);
+    await applyFileActions(plan.files, {
+      dryRun,
+      autoYes: yes
+    });
+
+    if (!dryRun) {
+      status("Refreshing local RAG index after file changes", verbose);
+      const documents = buildRagIndex(projectRoot);
+      const memory = new MemoryStore();
+      memory.replaceDocuments(documents);
+      status(`Indexed ${documents.length} retrieval chunks`, verbose);
+    }
+  }
+
+  if (plan.commands.length > 0) {
+    status(`Executing ${plan.commands.length} command(s)`, verbose);
+    await executeCommands(plan.commands, { dryRun, autoYes: yes });
   }
 }

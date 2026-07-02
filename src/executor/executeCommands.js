@@ -2,10 +2,6 @@ import { spawn } from "child_process";
 import readline from "readline";
 import chalk from "chalk";
 
-/**
- * Commands that can cause irreversible system damage.
- * This is intentionally SMALL and explicit.
- */
 const DANGEROUS_PATTERNS = [
   /\brm\s+-rf\b/i,
   /\bdel\s+\/s\b/i,
@@ -19,66 +15,96 @@ const DANGEROUS_PATTERNS = [
   />\s*\/dev\/sda/i
 ];
 
-
-/**
- * Block shell chaining even with shell:true
- */
 const BLOCK_PATTERNS = ["&&", "|", ";"];
 
-export async function executeCommands(commands, { dryRun, autoYes }) {
-  for (const c of commands) {
-    console.log(
-      `\n⚙️  ${chalk.cyan(c.cmd)} (${chalk.yellow(c.risk)})`
-    );
+const PACKAGE_MUTATION_PATTERNS = [
+  /\b(npm|pnpm|yarn)\s+(install|add|update|upgrade|remove|uninstall)\b/i,
+  /\b(npm|pnpm|yarn)\s+i\b/i,
+  /\b(npx)\b/i,
+  /\b(pip|pip3)\s+(install|uninstall)\b/i,
+  /\bpython\s+-m\s+pip\s+(install|uninstall)\b/i,
+  /\bpoetry\s+(add|remove|install|update)\b/i,
+  /\buv\s+(add|remove|pip\s+install|pip\s+uninstall)\b/i
+];
 
-    if (isChained(c.cmd)) {
-      throw new Error(`Command chaining is blocked: ${c.cmd}`);
+const GLOBAL_PACKAGE_PATTERNS = [
+  /\b(npm|pnpm|yarn)\s+.*\s(-g|--global)\b/i,
+  /\b(pip|pip3)\s+install\b.*\s(--user|--break-system-packages)\b/i
+];
+
+export class CommandExecutionError extends Error {
+  constructor(command, message) {
+    super(message);
+    this.name = "CommandExecutionError";
+    this.command = command;
+  }
+}
+
+export async function executeCommands(commands, { dryRun, autoYes }) {
+  for (const command of commands) {
+    const risk = classifyCommandRisk(command.cmd, command.risk);
+
+    console.log(`\nCommand ${chalk.cyan(command.cmd)} (${chalk.yellow(risk)})`);
+
+    if (isChained(command.cmd)) {
+      throw new CommandExecutionError(
+        command.cmd,
+        `Command chaining is blocked: ${command.cmd}`
+      );
     }
 
-    if (isDangerousCommand(c.cmd)) {
-      throw new Error(`Dangerous command blocked: ${c.cmd}`);
+    if (isDangerousCommand(command.cmd)) {
+      throw new CommandExecutionError(
+        command.cmd,
+        `Dangerous command blocked: ${command.cmd}`
+      );
     }
 
     if (dryRun) {
-      console.log(chalk.yellow("🟡 Dry-run: command not executed."));
+      console.log(chalk.yellow("Dry-run: command not executed."));
       continue;
     }
 
-    if (c.risk === "high" && !autoYes) {
-      const ok = await confirm("⚠️ High-risk command. Proceed? (y/n): ");
+    if (risk !== "low") {
+      const ok = await confirm(`${riskLabel(risk)} command. Proceed? (y/n): `);
       if (!ok) {
         console.log(chalk.gray("Skipped."));
         continue;
       }
     }
-    
 
-    await run(normalizeQuotes(c.cmd));
+    try {
+      await run(normalizeQuotes(command.cmd));
+    } catch (err) {
+      throw new CommandExecutionError(command.cmd, err.message);
+    }
   }
 }
+
+export function classifyCommandRisk(cmd, modelRisk = "medium") {
+  if (isDangerousCommand(cmd)) return "high";
+  if (GLOBAL_PACKAGE_PATTERNS.some(rx => rx.test(cmd))) return "high";
+  if (PACKAGE_MUTATION_PATTERNS.some(rx => rx.test(cmd))) return "medium";
+  if (["low", "medium", "high"].includes(modelRisk)) return modelRisk;
+  return "medium";
+}
+
+function riskLabel(risk) {
+  return risk === "high" ? "High-risk" : "Medium-risk";
+}
+
 function normalizeQuotes(cmd) {
-  // Replace single-quoted strings with double-quoted strings
   return cmd.replace(/'([^']*)'/g, (_, inner) => `"${inner}"`);
 }
 
-
-/**
- * Detect truly dangerous commands
- */
 function isDangerousCommand(cmd) {
   return DANGEROUS_PATTERNS.some(rx => rx.test(cmd));
 }
 
-/**
- * Block command chaining operators
- */
 function isChained(cmd) {
   return BLOCK_PATTERNS.some(p => cmd.includes(p));
 }
 
-/**
- * Execute command via shell for cross-platform support
- */
 function run(command) {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, {
@@ -100,9 +126,6 @@ function run(command) {
   });
 }
 
-/**
- * Explicit confirmation for high-risk commands
- */
 function confirm(prompt) {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -112,8 +135,8 @@ function confirm(prompt) {
   return new Promise(resolve => {
     rl.question(prompt, answer => {
       rl.close();
-      const v = answer.trim()?.toLowerCase();
-      resolve(v === "y" || v === "yes");
+      const value = answer.trim()?.toLowerCase();
+      resolve(value === "y" || value === "yes");
     });
   });
 }
