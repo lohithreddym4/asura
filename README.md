@@ -37,6 +37,27 @@ Run an instruction:
 asura "create a test helper for the planner schema"
 ```
 
+Start an interactive session:
+
+```bash
+asura activate
+```
+
+Inside the session, type prompts directly:
+
+```text
+asura> create a basic RAG implementation here
+asura> add tests for it
+asura> undo
+```
+
+Session commands:
+
+- `/help`: show session commands
+- `/memory`: list memory
+- `/rebuild`: rebuild the local RAG index
+- `/exit`: leave the session
+
 Preview without writing files or running commands:
 
 ```bash
