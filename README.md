@@ -1,210 +1,122 @@
-# ⚔️ Asura Agent
+# Asura Agent
 
-**Asura Agent** is a schema-validated autonomous CLI automation engine that converts natural language instructions into structured execution plans and safely applies them to your local project.
+Asura Agent is a schema-validated autonomous CLI agent for local developer automation. It converts natural language instructions into structured plans, enriches planning with local project retrieval, validates every plan, previews file changes, and gates risky shell commands.
 
-It separates **planning** from **execution**, enforces strict JSON validation, and protects your system with guarded filesystem and shell controls.
+The goal is simple: let an AI assistant work inside a codebase with enough memory, retrieval, and guardrails to be useful without becoming reckless.
 
-Asura constrains probabilistic LLM output inside deterministic guardrails.
-
----
-
-## 🚀 Installation
-
-Install globally:
+## Installation
 
 ```bash
 npm install -g asura-agent
 ```
 
----
-
-## ⚙️ Initial Setup
-
-Before using Asura, initialize your AI provider:
+## Initial Setup
 
 ```bash
 asura init
 ```
 
-You will be prompted to:
+You will be prompted for:
 
-* Select an AI provider (OpenAI, Groq, Gemini, Mistral, Anthropic)
-* Enter your API key (secure input)
+- AI provider: OpenAI, Groq, Gemini, Mistral, or Anthropic
+- API key for that provider
 
-To switch providers later:
+Switch providers later:
 
 ```bash
 asura provider
 ```
 
-Configuration is stored locally in your system user directory.
+Configuration is stored in your user directory at `~/.asura/config.json`.
 
----
+## Usage
 
-## 🧠 How It Works
-
-When you run:
+Run an instruction:
 
 ```bash
-asura "create a React component Button"
+asura "create a test helper for the planner schema"
 ```
 
-Asura executes a controlled pipeline:
-
-1. Loads project memory
-2. Scans project structure (first run only)
-3. Resolves implicit file references (e.g., “it”, “that file”)
-4. Generates a structured JSON plan via LLM
-5. Validates the plan against a strict schema
-6. Handles clarification if needed
-7. Applies filesystem changes (diff-based)
-8. Executes shell commands (risk-gated)
-9. Updates internal memory state
-
-All actions must pass validation before execution.
-
-No direct free-form execution is allowed.
-
----
-
-## 📌 Basic Usage
-
-### Run an Instruction
+Preview without writing files or running commands:
 
 ```bash
-asura "create a file test.js with a hello world function"
+asura --dry-run "modify src/planner/model.js to improve validation errors"
 ```
 
-### Preview Without Applying Changes
+Auto-approve safe create/modify file actions:
 
 ```bash
-asura --dry-run "modify index.js"
+asura --yes "add a README section for memory search"
 ```
 
-### Auto-Approve Safe Operations
-
-```bash
-asura --yes "install express"
-```
-
-### Undo the Last Filesystem Change
+Undo the last filesystem change:
 
 ```bash
 asura undo
 ```
 
----
+## RAG And Memory
 
-## 🧠 Memory System
+Asura keeps project-scoped memory in `.ai/memory.db`. The memory layer stores recent files, inferred project facts, and a local retrieval index made from safe text files in the current project.
 
-Asura maintains project-scoped memory, including:
+On first run, Asura scans the project and builds the local retrieval index automatically. The planner receives the most relevant snippets for each instruction so it can follow existing conventions instead of inventing structure.
 
-* Known directories
-* Recent files
-* Last modified file
-* Framework heuristics
-* Styling heuristics
+Rebuild the local RAG index:
 
-### List Stored Memory
+```bash
+asura memory rebuild
+```
+
+Search the local RAG index:
+
+```bash
+asura memory search "planner schema validation"
+```
+
+List stored memory:
 
 ```bash
 asura memory list
 ```
 
-### Clear Memory
+Clear memory:
 
 ```bash
 asura memory clear
 ```
 
-Implicit references are supported:
+The index intentionally skips `.env`, hidden runtime memory, `node_modules`, build output, and large lockfiles.
 
-```bash
-asura "modify it"
+## How It Works
+
+```text
+User instruction
+  -> Project memory lookup
+  -> Local RAG retrieval
+  -> Plan generation through configured AI provider
+  -> Zod schema validation
+  -> Clarification handling
+  -> Diff preview for file actions
+  -> Guarded command execution
+  -> Memory update and undo record
 ```
 
-`it` resolves to the last modified file.
+The planning engine is the only component allowed to generate execution plans. Execution never bypasses validation.
 
----
+## Plan Shape
 
-## 🔐 Safety Model
-
-Asura enforces strict execution controls.
-
-### Filesystem Safety
-
-* Explicit create / modify / rename / delete actions
-* Diff preview before writes
-* Delete ambiguity guard
-* Confirmation required for destructive actions
-* Undo support
-
-### Shell Execution Safety
-
-* Command risk classification (low / medium / high)
-* Confirmation required for high-risk commands
-* Blocks command chaining (`&&`, `|`, `;`)
-* Blocks destructive patterns such as:
-
-  * `rm -rf`
-  * `curl | sh`
-  * `mkfs`
-  * `dd`
-  * `format`
-  * `reboot`
-  * `shutdown`
-
-### Clarification Engine
-
-If an instruction is ambiguous:
-
-```
-❓ Clarification needed:
-Which file do you want to modify?
-```
-
-Execution pauses until clarified.
-
-Nested clarification is prevented.
-
----
-
-## 🏗 Architecture Overview
-
-Asura follows a deterministic control flow:
-
-```
-User Input
-  → Memory Context Merge
-  → Project Scan
-  → Plan Generation (LLM)
-  → Schema Validation (Zod)
-  → Clarification Handling
-  → Filesystem Executor
-  → Command Executor
-  → Memory Extraction
-```
-
-The planning engine is the only component allowed to generate execution plans.
-
-Execution never bypasses validation.
-
----
-
-## 📦 Plan Schema (Example)
-
-Every instruction becomes structured JSON:
+Every instruction becomes JSON that matches the plan schema:
 
 ```json
 {
   "intent": "create_file",
-  "summary": "Create test.js file",
+  "summary": "Create a test helper",
   "clarification": null,
   "files": [
     {
       "action": "create",
       "path": "test.js",
-      "content": "console.log('Hello world');"
+      "content": "console.log(\"Hello world\");"
     }
   ],
   "commands": [],
@@ -212,79 +124,55 @@ Every instruction becomes structured JSON:
 }
 ```
 
-Plans that fail schema validation are retried automatically.
+If the model returns invalid JSON or fails schema validation, Asura retries with the validation error.
 
----
+## Safety Model
 
-## 🛠 Configuration Commands
+Filesystem controls:
 
-Initialize provider:
+- Explicit create, modify, rename, and delete actions
+- Project-root path containment at validation and execution time
+- Diff preview before writes
+- Delete ambiguity guard
+- Confirmation required for destructive operations
+- Undo support for the last filesystem change
 
-```bash
-asura init
-```
+Shell controls:
 
-Change provider:
+- Command risk classification: low, medium, high
+- Confirmation required for high-risk commands
+- Command chaining blocked
+- Dangerous patterns blocked, including `rm -rf`, `curl | sh`, `mkfs`, `dd`, `format`, `reboot`, and `shutdown`
+- Filesystem mutations must use file actions, not shell commands
 
-```bash
-asura provider
-```
+Clarification controls:
 
-Manual configuration (advanced):
+- Ambiguous requests produce a clarification instead of an unsafe guess
+- Follow-up answers are merged into the original instruction
+- Nested clarification loops are blocked
 
-```bash
-asura config set <key> <value>
-```
+## Supported Providers
 
----
+- OpenAI
+- Groq
+- Gemini
+- Mistral
+- Anthropic
 
-## 🌐 Supported AI Providers
+## Requirements
 
-* OpenAI
-* Groq
-* Gemini
-* Mistral
-* Anthropic
+- Node.js 18+
+- A configured API key for one supported AI provider
 
-Provider and API keys are stored locally after initialization.
+## Design Principles
 
----
+- Validate probabilistic model output before doing anything real
+- Use local project retrieval to ground the planner
+- Keep secrets out of memory and retrieval
+- Prefer explicit file actions over shell mutations
+- Require confirmation for destructive behavior
+- Make dry runs and undo normal parts of the workflow
 
-## 🧪 Advanced Flags
-
-```bash
---dry-run
-```
-
-Preview file and command changes without executing them.
-
-```bash
---yes
-```
-
-Auto-approve safe operations.
-
----
-
-## 🖥 Requirements
-
-* Node.js 18+
-
----
-
-## 🔍 Design Principles
-
-* Deterministic validation before execution
-* Explicit separation between planning and mutation
-* Memory-scoped contextual planning
-* Controlled command execution
-* Defensive error handling
-* No implicit destructive operations
-
-Asura is built to reduce unsafe automation while preserving developer velocity.
-
----
-
-## 📜 License
+## License
 
 MIT

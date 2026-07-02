@@ -24,6 +24,8 @@ export function extractMemoryFromPlan(plan) {
       facts.last_component = path.basename(file.path, ext);
     }
 
+    if (!("content" in file)) continue;
+
     // 3. Styling inference (safe heuristics)
     const content = file.content.toLowerCase();
     if (

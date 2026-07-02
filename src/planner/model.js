@@ -9,17 +9,24 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getConfig } from "../config/store.js";
 
 
-dotenv.config();
 const planCache = new Map();
 let callModelInstance = null;
 
 function initializeProvider() {
   if (callModelInstance) return;
 
+  dotenv.config({ quiet: true });
   const config = getConfig();
 
   const provider =
     config.provider;
+
+  if (!provider) {
+    throw new Error(
+      "No AI provider configured. Run: asura init"
+    );
+  }
+
   const allowedProviders = [
     "openai",
     "groq",
@@ -30,13 +37,6 @@ function initializeProvider() {
 
   if (!allowedProviders.includes(provider)) {
     throw new Error("Invalid provider configuration.");
-  }
-
-
-  if (!provider) {
-    throw new Error(
-      "No AI provider configured. Run: asura init"
-    );
   }
 
   const keyMap = {
@@ -164,7 +164,9 @@ function filterMemoryForPlanning(memory) {
     "last_file",
     "framework",
     "styling",
-    "project_type"
+    "project_type",
+    "rag_document_count",
+    "rag_indexed_at"
   ];
 
   return Object.fromEntries(
@@ -173,10 +175,10 @@ function filterMemoryForPlanning(memory) {
 }
 
 
-export async function generatePlan(userInput, memory = {}) {
+export async function generatePlan(userInput, memory = {}, ragContext = "(none)") {
   initializeProvider()
   const filteredMemory = filterMemoryForPlanning(memory);
-  const cacheKey = JSON.stringify({ userInput, memory: filteredMemory });
+  const cacheKey = JSON.stringify({ userInput, memory: filteredMemory, ragContext });
 
   if (planCache.has(cacheKey)) {
     return planCache.get(cacheKey);
@@ -199,6 +201,9 @@ Fix the plan.
 
 Known context:
 ${memoryContext || "(none)"}
+
+Retrieved project context:
+${ragContext}
 
 User input:
 ${userInput}
@@ -224,7 +229,9 @@ ${userInput}
       lastError = err;
 
       if (err.name === "ZodError") {
-        lastValidationError = err.errors.map(e => e.message).join("; ");
+        lastValidationError = (err.issues || err.errors)
+          .map(e => e.message)
+          .join("; ");
       } else {
         lastValidationError = err.message;
       }

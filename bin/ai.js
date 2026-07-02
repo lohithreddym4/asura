@@ -6,8 +6,10 @@ import { executeCommands } from "../src/executor/executeCommands.js";
 import { applyFileActions } from "../src/fs/applyFiles.js";
 import { MemoryStore } from "../src/memory/store.js";
 import { extractMemoryFromPlan } from "../src/memory/extract.js";
-import { getConfig, setConfig } from "../src/config/store.js";
+import { setConfig } from "../src/config/store.js";
 import { scanProject } from "../src/memory/scan.js";
+import { buildContext } from "../src/context/buildContext.js";
+import { buildRagIndex, formatRetrievedContext, retrieveDocuments } from "../src/memory/rag.js";
 import inquirer from "inquirer";
 
 
@@ -43,6 +45,31 @@ memoryCmd
     const memory = new MemoryStore();
     memory.clear();
     console.log("🧹 Agent memory cleared.");
+  });
+
+memoryCmd
+  .command("rebuild")
+  .description("Rebuild local RAG index")
+  .action(() => {
+    const memory = new MemoryStore();
+    const projectRoot = memory.get("project_root") || process.cwd();
+    const documents = buildRagIndex(projectRoot);
+    memory.replaceDocuments(documents);
+    console.log(`Indexed ${documents.length} project chunks for retrieval.`);
+  });
+
+memoryCmd
+  .command("search <query>")
+  .description("Search the local RAG index")
+  .option("-n, --limit <number>", "Maximum results", "6")
+  .action((query, options) => {
+    const memory = new MemoryStore();
+    const limit = Number.parseInt(options.limit, 10);
+    const results = retrieveDocuments(query, memory.allDocuments(), {
+      limit: Number.isFinite(limit) ? limit : 6
+    });
+
+    console.log(formatRetrievedContext(results));
   });
 
 function resolveImplicitTargets(input, memory) {
@@ -89,6 +116,7 @@ program
         const { knownDirs, knownFiles } = scanProject(projectRoot);
         memory.setJSON("known_dirs", knownDirs);
         memory.setJSON("known_files", knownFiles.slice(-50));
+        memory.replaceDocuments(buildRagIndex(projectRoot));
         memory.markScanned();
       }
       if (instruction.trim() === "undo") {
@@ -122,7 +150,8 @@ program
         memory.set("force_intent", "command");
       }
 
-      const plan = await generatePlan(instruction, memory.all());
+      const { ragContext } = buildContext(instruction, memory);
+      const plan = await generatePlan(instruction, memory.all(), ragContext);
 
 
       // 🧹 Auto-clear clarification if user intent clearly changed

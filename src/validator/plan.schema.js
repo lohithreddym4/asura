@@ -45,12 +45,11 @@ export const PlanSchema = z.object({
   if (plan.refusal) {
     if (
       plan.files.length > 0 ||
-      plan.commands.length > 0 ||
-      plan.intent
+      plan.commands.length > 0
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Refusal plans must not include intent, files, or commands"
+        message: "Refusal plans must not include files or commands"
       });
     }
     return;

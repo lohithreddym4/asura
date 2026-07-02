@@ -11,6 +11,9 @@ CRITICAL RULES:
 - NEVER return an empty files array for create or modify intents.
 - If intent cannot be fulfilled unambiguously, set "clarification".
 - Follow existing project conventions from Known context strictly.
+- Treat Retrieved project context as the highest-signal local codebase evidence.
+- When modifying existing code, preserve surrounding project style, APIs, and file organization from retrieved snippets.
+- If the retrieved context shows that a requested file, symbol, or convention does not exist and the request depends on it, ask for clarification instead of inventing it.
 - Do NOT infer frameworks, languages, or tools unless explicitly stated.
 - All shell commands MUST use double quotes for string arguments. Never use single quotes.
 

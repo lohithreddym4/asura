@@ -45,6 +45,23 @@ export class MemoryStore {
         value TEXT NOT NULL
       )
     `).run();
+
+    this.db.prepare(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        start_line INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        tokens TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run();
+
+    this.db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_documents_path
+      ON documents(path)
+    `).run();
   }
 
   set(key, value) {
@@ -89,6 +106,52 @@ export class MemoryStore {
   
   markScanned() {
     this.set("dir_scanned", "true");
+  }
+
+  replaceDocuments(documents) {
+    const insert = this.db.prepare(`
+      INSERT INTO documents (
+        id,
+        path,
+        start_line,
+        end_line,
+        content,
+        tokens,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const tx = this.db.transaction((rows) => {
+      this.db.prepare(`DELETE FROM documents`).run();
+      for (const row of rows) {
+        insert.run(
+          row.id,
+          row.path,
+          row.startLine,
+          row.endLine,
+          row.content,
+          JSON.stringify(row.tokens),
+          row.updatedAt
+        );
+      }
+    });
+
+    tx(documents);
+    this.set("rag_indexed_at", String(Date.now()));
+    this.set("rag_document_count", String(documents.length));
+  }
+
+  allDocuments() {
+    const rows = this.db.prepare(`
+      SELECT id, path, start_line AS startLine, end_line AS endLine, content, tokens, updated_at AS updatedAt
+      FROM documents
+    `).all();
+
+    return rows.map(row => ({
+      ...row,
+      tokens: JSON.parse(row.tokens)
+    }));
   }
   
 

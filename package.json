@@ -1,7 +1,7 @@
 {
   "name": "asura-agent",
-  "version": "0.1.1",
-  "description": "Schema-validated autonomous CLI agent with guarded shell execution and memory-scoped planning.",
+  "version": "0.2.0",
+  "description": "Schema-validated autonomous CLI agent with guarded execution, local RAG, and memory-scoped planning.",
   "type": "module",
   "bin": {
     "asura": "./bin/ai.js"
@@ -12,13 +12,15 @@
     "README.md"
   ],
   "scripts": {
-    "start": "node bin/ai.js"
+    "start": "node bin/ai.js",
+    "test": "node --test"
   },
   "keywords": [
     "ai",
     "cli",
     "automation",
     "agent",
+    "rag",
     "llm",
     "developer-tools"
   ],
