@@ -52,6 +52,13 @@ function tokenize(text) {
   );
 }
 
+function extractSymbols(text) {
+  return Array.from(new Set(
+    Array.from(text.matchAll(/\b(?:function|class|const|let|var|def)\s+([A-Za-z_][A-Za-z0-9_]*)/g))
+      .map(match => match[1].toLowerCase())
+  ));
+}
+
 function shouldIndexFile(filePath) {
   if (IGNORE_FILES.has(path.basename(filePath))) return false;
   const ext = path.extname(filePath).toLowerCase();
@@ -87,6 +94,7 @@ export function buildRagIndex(root) {
 
   for (const fullPath of walkFiles(root)) {
     const relPath = normalizePath(path.relative(root, fullPath));
+    const stat = fs.statSync(fullPath);
     const content = fs.readFileSync(fullPath, "utf8");
     const lines = content.split(/\r?\n/);
 
@@ -99,6 +107,7 @@ export function buildRagIndex(root) {
       const endLine = start + chunkLines.length;
       const id = `${relPath}:${startLine}-${endLine}`;
       const searchText = `${relPath}\n${chunkContent}`;
+      const symbols = extractSymbols(chunkContent);
 
       documents.push({
         id,
@@ -106,7 +115,13 @@ export function buildRagIndex(root) {
         startLine,
         endLine,
         content: chunkContent,
-        tokens: tokenize(searchText),
+        tokens: tokenize(`${searchText}\n${symbols.join("\n")}`),
+        metadata: {
+          ext: path.extname(relPath).toLowerCase(),
+          symbols,
+          mtimeMs: stat.mtimeMs,
+          size: stat.size
+        },
         updatedAt: now
       });
     }
@@ -123,12 +138,18 @@ export function retrieveDocuments(query, documents, { limit = 6 } = {}) {
     .map(doc => {
       const docTokens = new Set(doc.tokens);
       const pathText = doc.path.toLowerCase();
+      const symbols = doc.metadata?.symbols || [];
       let score = 0;
 
       for (const token of queryTokens) {
         if (docTokens.has(token)) score += 3;
         if (pathText.includes(token)) score += 2;
+        if (symbols.includes(token)) score += 4;
       }
+
+      const ageMs = Date.now() - (doc.metadata?.mtimeMs || doc.updatedAt || 0);
+      if (ageMs < 1000 * 60 * 60 * 24) score += 1.5;
+      if (/\b(auth|route|api|controller|service|schema|model|config)\b/i.test(pathText)) score += 0.5;
 
       return { ...doc, score };
     })
@@ -148,8 +169,9 @@ export function formatRetrievedContext(results) {
     return [
       `File: ${doc.path}:${doc.startLine}-${doc.endLine}`,
       `Score: ${doc.score}`,
+      doc.metadata?.symbols?.length ? `Symbols: ${doc.metadata.symbols.join(", ")}` : null,
       "Snippet:",
       excerpt
-    ].join("\n");
+    ].filter(Boolean).join("\n");
   }).join("\n\n---\n\n");
 }

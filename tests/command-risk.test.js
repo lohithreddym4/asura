@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyCommandRisk,
+  expandEnvironmentCommands,
   normalizePlatformCommand
 } from "../src/executor/executeCommands.js";
 
@@ -28,4 +29,15 @@ test("windows normalizes common POSIX virtualenv paths", () => {
     normalizePlatformCommand(".venv/bin/python main.py", "win32"),
     ".venv\\Scripts\\python.exe main.py"
   );
+});
+
+test("python pip installs are expanded into project virtualenv commands", () => {
+  const commands = expandEnvironmentCommands(
+    [{ cmd: "pip install -r requirements.txt", risk: "medium" }],
+    { profile: { python: true }, projectRoot: process.cwd() }
+  );
+
+  assert.equal(commands[0].cmd, "python -m venv .venv");
+  assert.match(commands[1].cmd, /\.venv/);
+  assert.match(commands[1].cmd, /pip/);
 });

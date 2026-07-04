@@ -23,4 +23,5 @@ test("buildRagIndex chunks searchable project files and skips secrets", () => {
 
   const hits = retrieveDocuments("planner schema", docs, { limit: 1 });
   assert.equal(hits[0].path, "src/planner.js");
+  assert.ok(hits[0].metadata);
 });

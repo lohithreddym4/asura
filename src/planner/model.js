@@ -2,149 +2,204 @@ import dotenv from "dotenv";
 import Groq from "groq-sdk";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import SYSTEM_PROMPT from "./prompt.js";
-import { PlanSchema } from "../validator/plan.schema.js";
+import { SimpleChatModel } from "@langchain/core/language_models/chat_models";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Mistral } from "@mistralai/mistralai";
 import Anthropic from "@anthropic-ai/sdk";
+import SYSTEM_PROMPT from "./prompt.js";
+import { PlanSchema } from "../validator/plan.schema.js";
 import { getConfig } from "../config/store.js";
 
-
 const planCache = new Map();
-let callModelInstance = null;
+let chatModelInstance = null;
+
+class OpenAIPlannerModel extends SimpleChatModel {
+  constructor(apiKey) {
+    super({});
+    this.openai = new OpenAI({ apiKey });
+  }
+
+  _llmType() {
+    return "asura-openai-planner";
+  }
+
+  async _call(messages) {
+    const res = await this.openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: toOpenAIMessages(messages)
+    });
+    return res.choices[0].message.content;
+  }
+}
+
+class GroqPlannerModel extends SimpleChatModel {
+  constructor(apiKey) {
+    super({});
+    this.groq = new Groq({ apiKey });
+  }
+
+  _llmType() {
+    return "asura-groq-planner";
+  }
+
+  async _call(messages) {
+    const res = await this.groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      temperature: 0,
+      messages: toOpenAIMessages(messages)
+    });
+    return res.choices[0].message.content;
+  }
+}
+
+class GeminiPlannerModel extends SimpleChatModel {
+  constructor(apiKey) {
+    super({});
+    this.gemini = new GoogleGenerativeAI(apiKey);
+  }
+
+  _llmType() {
+    return "asura-gemini-planner";
+  }
+
+  async _call(messages) {
+    const model = this.gemini.getGenerativeModel({
+      model: "models/gemini-flash-latest"
+    });
+    const result = await model.generateContent(messagesToText(messages));
+    return result.response.text();
+  }
+}
+
+class MistralPlannerModel extends SimpleChatModel {
+  constructor(apiKey) {
+    super({});
+    this.mistral = new Mistral({ apiKey });
+  }
+
+  _llmType() {
+    return "asura-mistral-planner";
+  }
+
+  async _call(messages) {
+    const res = await this.mistral.chat.complete({
+      model: "mistral-large-latest",
+      temperature: 0,
+      messages: toOpenAIMessages(messages)
+    });
+    return res.choices[0].message.content;
+  }
+}
+
+class AnthropicPlannerModel extends SimpleChatModel {
+  constructor(apiKey) {
+    super({});
+    this.anthropic = new Anthropic({ apiKey });
+  }
+
+  _llmType() {
+    return "asura-anthropic-planner";
+  }
+
+  async _call(messages) {
+    const system = messages
+      .filter(message => message._getType() === "system")
+      .map(message => messageContentToString(message.content))
+      .join("\n\n");
+
+    const userContent = messages
+      .filter(message => message._getType() !== "system")
+      .map(message => messageContentToString(message.content))
+      .join("\n\n");
+
+    const res = await this.anthropic.messages.create({
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 2048,
+      temperature: 0,
+      system,
+      messages: [
+        { role: "user", content: userContent }
+      ]
+    });
+    return res.content[0].text;
+  }
+}
 
 function initializeProvider() {
-  if (callModelInstance) return;
+  if (chatModelInstance) return;
 
   dotenv.config({ quiet: true });
   const config = getConfig();
-
-  const provider =
-    config.provider;
+  const provider = config.provider;
 
   if (!provider) {
-    throw new Error(
-      "No AI provider configured. Run: asura init"
-    );
-  }
-
-  const allowedProviders = [
-    "openai",
-    "groq",
-    "gemini",
-    "mistral",
-    "anthropic"
-  ];
-
-  if (!allowedProviders.includes(provider)) {
-    throw new Error("Invalid provider configuration.");
+    throw new Error("No AI provider configured. Run: asura init");
   }
 
   const keyMap = {
     openai: config.openaiApiKey,
-    groq:  config.groqApiKey,
-    gemini:  config.geminiApiKey,
-    mistral:  config.mistralApiKey,
-    anthropic:  config.anthropicApiKey
+    groq: config.groqApiKey,
+    gemini: config.geminiApiKey,
+    mistral: config.mistralApiKey,
+    anthropic: config.anthropicApiKey
   };
 
   const apiKey = keyMap[provider];
-
   if (!apiKey) {
-    throw new Error(
-      `API key not configured for "${provider}". Run: asura init`
-    );
+    throw new Error(`API key not configured for "${provider}". Run: asura init`);
   }
 
-  switch (provider) {
+  const modelMap = {
+    openai: () => new OpenAIPlannerModel(apiKey),
+    groq: () => new GroqPlannerModel(apiKey),
+    gemini: () => new GeminiPlannerModel(apiKey),
+    mistral: () => new MistralPlannerModel(apiKey),
+    anthropic: () => new AnthropicPlannerModel(apiKey)
+  };
 
-    case "openai": {
-      const openai = new OpenAI({ apiKey });
-      callModelInstance = async (prompt) => {
-        const res = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: prompt }
-          ]
-        });
-        return res.choices[0].message.content;
-      };
-      break;
-    }
-  
-    case "groq": {
-      const groq = new Groq({ apiKey });
-      callModelInstance = async (prompt) => {
-        const res = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
-          temperature: 0,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: prompt }
-          ]
-        });
-        return res.choices[0].message.content;
-      };
-      break;
-    }
-  
-    case "gemini": {
-      const gemini = new GoogleGenerativeAI(apiKey);
-      callModelInstance = async (prompt) => {
-        const model = gemini.getGenerativeModel({
-          model: "models/gemini-flash-latest"
-        });
-        const result = await model.generateContent(
-          `${SYSTEM_PROMPT}\n\n${prompt}`
-        );
-        return result.response.text();
-      };
-      break;
-    }
-  
-    case "mistral": {
-      const mistral = new Mistral({ apiKey });
-      callModelInstance = async (prompt) => {
-        const res = await mistral.chat.complete({
-          model: "mistral-large-latest",
-          temperature: 0,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: prompt }
-          ]
-        });
-        return res.choices[0].message.content;
-      };
-      break;
-    }
-  
-    case "anthropic": {
-      const anthropic = new Anthropic({ apiKey });
-      callModelInstance = async (prompt) => {
-        const res = await anthropic.messages.create({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 2048,
-          temperature: 0,
-          system: SYSTEM_PROMPT,
-          messages: [
-            { role: "user", content: prompt }
-          ]
-        });
-        return res.content[0].text;
-      };
-      break;
-    }
-  
-    default:
-      throw new Error(
-        `Invalid AI provider. Use: openai | groq | gemini | mistral | anthropic`
-      );
+  if (!modelMap[provider]) {
+    throw new Error("Invalid provider configuration.");
   }
-  
+
+  chatModelInstance = modelMap[provider]();
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function toOpenAIMessages(messages) {
+  return messages.map(message => ({
+    role: toChatRole(message),
+    content: messageContentToString(message.content)
+  }));
+}
+
+function toChatRole(message) {
+  const type = message._getType();
+  if (type === "system") return "system";
+  if (type === "ai") return "assistant";
+  return "user";
+}
+
+function messagesToText(messages) {
+  return messages
+    .map(message => `${toChatRole(message).toUpperCase()}:\n${messageContentToString(message.content)}`)
+    .join("\n\n");
+}
+
+function messageContentToString(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === "string") return part;
+        if (part?.text) return part.text;
+        return JSON.stringify(part);
+      })
+      .join("\n");
+  }
+  return String(content ?? "");
+}
 
 function extractJSON(text) {
   const first = text.indexOf("{");
@@ -165,6 +220,7 @@ function filterMemoryForPlanning(memory) {
     "framework",
     "styling",
     "project_type",
+    "project_profile",
     "rag_document_count",
     "rag_indexed_at"
   ];
@@ -174,9 +230,8 @@ function filterMemoryForPlanning(memory) {
   );
 }
 
-
 export async function generatePlan(userInput, memory = {}, ragContext = "(none)") {
-  initializeProvider()
+  initializeProvider();
   const filteredMemory = filterMemoryForPlanning(memory);
   const cacheKey = JSON.stringify({ userInput, memory: filteredMemory, ragContext });
 
@@ -216,7 +271,7 @@ ${userInput}
 `;
 
     try {
-      const raw = await callModelInstance(prompt);
+      const raw = await callPlannerModel(prompt);
       const jsonOnly = extractJSON(raw);
 
       let parsed;
@@ -227,10 +282,8 @@ ${userInput}
       }
 
       const plan = PlanSchema.parse(parsed);
-
       planCache.set(cacheKey, plan);
       return plan;
-
     } catch (err) {
       lastError = err;
 
@@ -255,4 +308,12 @@ ${userInput}
   }
 
   throw lastError;
+}
+
+async function callPlannerModel(prompt) {
+  const response = await chatModelInstance.invoke([
+    new SystemMessage(SYSTEM_PROMPT),
+    new HumanMessage(prompt)
+  ]);
+  return messageContentToString(response.content);
 }

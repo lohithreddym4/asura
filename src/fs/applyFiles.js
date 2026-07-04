@@ -3,6 +3,7 @@ import path from "path";
 import readline from "readline";
 import { createTwoFilesPatch } from "diff";
 import chalk from "chalk";
+import { createCheckpoint } from "./checkpoint.js";
 import { MemoryStore } from "../memory/store.js";
 
 let memory;
@@ -16,11 +17,31 @@ function getMemory() {
 }
 
 export async function applyFileActions(files, { dryRun, autoYes }) {
+  if (!dryRun && files.length > 0) {
+    createCheckpoint(files);
+  }
+
+  const writeFiles = files.filter(file => ["create", "modify"].includes(file.action));
+  const onlyWrites = writeFiles.length === files.length;
+  let batchApproved = false;
+
+  if (onlyWrites && writeFiles.length > 1 && !dryRun && !autoYes) {
+    console.log(`\nPlanned file changes (${writeFiles.length}):`);
+    for (const file of writeFiles) {
+      console.log(`- ${file.action}: ${file.path}`);
+    }
+    batchApproved = await confirm("Apply all file changes? (y/n): ");
+    if (!batchApproved) {
+      console.log(chalk.gray("Skipped all file changes."));
+      return;
+    }
+  }
+
   for (const file of files) {
     switch (file.action) {
       case "create":
       case "modify":
-        await applyWrite(file, dryRun, autoYes);
+        await applyWrite(file, dryRun, autoYes || batchApproved);
         break;
 
       case "rename":

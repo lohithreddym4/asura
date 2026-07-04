@@ -6,9 +6,16 @@ import readline from "readline/promises";
 import { setConfig } from "../src/config/store.js";
 import { buildRagIndex, formatRetrievedContext, retrieveDocuments } from "../src/memory/rag.js";
 import { MemoryStore } from "../src/memory/store.js";
+import { setExecutionPolicy } from "../src/policy/executionPolicy.js";
+import { rollbackLastCheckpoint } from "../src/fs/checkpoint.js";
+import { listRuns, readRun } from "../src/runtime/history.js";
 import { runInstruction } from "../src/runtime/runInstruction.js";
 
 const program = new Command();
+
+const PURPLE = "\x1b[38;2;188;19;254m";
+const RESET = "\x1b[0m";
+const p = (text) => `${PURPLE}${text}${RESET}`;
 
 const providerChoices = [
   { name: "OpenAI", value: "openai" },
@@ -38,13 +45,13 @@ memoryCmd
     const data = memory.all();
 
     if (Object.keys(data).length === 0) {
-      console.log("Memory is empty.");
+      console.log(p("Memory is empty."));
       return;
     }
 
-    console.log("Agent memory:");
+    console.log(p("Agent memory:"));
     for (const [key, value] of Object.entries(data)) {
-      console.log(`- ${key}: ${value}`);
+      console.log(p(`- ${key}: ${value}`));
     }
   });
 
@@ -54,7 +61,7 @@ memoryCmd
   .action(() => {
     const memory = new MemoryStore();
     memory.clear();
-    console.log("Agent memory cleared.");
+    console.log(p("Agent memory cleared."));
   });
 
 memoryCmd
@@ -65,7 +72,7 @@ memoryCmd
     const projectRoot = memory.get("project_root") || process.cwd();
     const documents = buildRagIndex(projectRoot);
     memory.replaceDocuments(documents);
-    console.log(`Indexed ${documents.length} project chunks for retrieval.`);
+    console.log(p(`Indexed ${documents.length} project chunks for retrieval.`));
   });
 
 memoryCmd
@@ -79,14 +86,16 @@ memoryCmd
       limit: Number.isFinite(limit) ? limit : 6
     });
 
-    console.log(formatRetrievedContext(results));
+    console.log(p(formatRetrievedContext(results)));
   });
 
 program
   .name("asura")
-  .description("Schema-validated autonomous CLI agent with local RAG")
+  .description("LangGraph-powered autonomous CLI agent with local RAG")
   .option("--dry-run", "Preview changes without applying")
   .option("--yes", "Auto-approve safe operations")
+  .option("--json", "Print raw JSON plans")
+  .option("--policy <policy>", "Execution policy: safe, dev, auto")
   .argument("[instruction]")
   .action(async (instruction, options) => {
     if (!instruction) {
@@ -97,6 +106,8 @@ program
     await runInstruction(instruction, {
       dryRun: options.dryRun,
       yes: options.yes,
+      json: options.json,
+      policy: options.policy,
       verbose: true,
       exitOnError: true
     });
@@ -107,9 +118,11 @@ program
   .description("Start an interactive Asura prompt session")
   .option("--dry-run", "Preview changes without applying")
   .option("--yes", "Auto-approve safe operations")
+  .option("--json", "Print raw JSON plans")
+  .option("--policy <policy>", "Execution policy: safe, dev, auto")
   .action(async (options) => {
-    console.log("Asura activated. Type your request directly.");
-    console.log("Use /exit or Ctrl+C to leave. Use /help for session commands.");
+    console.log(p("Asura activated. Type your request directly."));
+    console.log(p("Use /exit or Ctrl+C to leave. Use /help for session commands."));
 
     const rl = readline.createInterface({
       input: process.stdin,
@@ -118,20 +131,20 @@ program
 
     try {
       while (true) {
-        const input = (await rl.question("\nasura> ")).trim();
+        const input = (await rl.question(p("\nasura> "))).trim();
         if (!input) continue;
 
         if (input === "/exit" || input === "exit" || input === "quit") {
-          console.log("Asura session closed.");
+          console.log(p("Asura session closed."));
           break;
         }
 
         if (input === "/help") {
-          console.log("Session commands:");
-          console.log("- /help: show this help");
-          console.log("- /memory: list memory");
-          console.log("- /rebuild: rebuild local RAG index");
-          console.log("- /exit: leave the session");
+          console.log(p("Session commands:"));
+          console.log(p("- /help: show this help"));
+          console.log(p("- /memory: list memory"));
+          console.log(p("- /rebuild: rebuild local RAG index"));
+          console.log(p("- /exit: leave the session"));
           continue;
         }
 
@@ -139,11 +152,11 @@ program
           const memory = new MemoryStore();
           const data = memory.all();
           if (Object.keys(data).length === 0) {
-            console.log("Memory is empty.");
+            console.log(p("Memory is empty."));
           } else {
-            console.log("Agent memory:");
+            console.log(p("Agent memory:"));
             for (const [key, value] of Object.entries(data)) {
-              console.log(`- ${key}: ${value}`);
+              console.log(p(`- ${key}: ${value}`));
             }
           }
           continue;
@@ -154,13 +167,15 @@ program
           const projectRoot = memory.get("project_root") || process.cwd();
           const documents = buildRagIndex(projectRoot);
           memory.replaceDocuments(documents);
-          console.log(`Indexed ${documents.length} project chunks for retrieval.`);
+          console.log(p(`Indexed ${documents.length} project chunks for retrieval.`));
           continue;
         }
 
         await runInstruction(input, {
           dryRun: options.dryRun,
           yes: options.yes,
+          json: options.json,
+          policy: options.policy,
           verbose: true,
           exitOnError: false
         });
@@ -177,14 +192,61 @@ program
   .description("Set configuration value")
   .action((key, value) => {
     setConfig(key, value);
-    console.log(`Config updated: ${key}`);
+    console.log(p(`Config updated: ${key}`));
+  });
+
+program
+  .command("policy <policy>")
+  .description("Set execution policy: safe, dev, auto")
+  .action((policy) => {
+    setExecutionPolicy(policy);
+    console.log(p(`Execution policy set to ${policy}.`));
+  });
+
+program
+  .command("rollback")
+  .description("Rollback files to the last Asura checkpoint")
+  .action(() => {
+    const ok = rollbackLastCheckpoint();
+    console.log(p(ok ? "Rolled back to last checkpoint." : "No checkpoint found."));
+  });
+
+const runsCmd = program
+  .command("runs")
+  .description("Inspect persistent run history");
+
+runsCmd
+  .command("list")
+  .description("List recent Asura runs")
+  .action(() => {
+    const runs = listRuns(process.cwd()).slice(0, 20);
+    if (runs.length === 0) {
+      console.log(p("No runs found."));
+      return;
+    }
+
+    for (const run of runs) {
+      console.log(p(`${run.id}  ${run.status || "running"}  ${run.instruction}`));
+    }
+  });
+
+runsCmd
+  .command("show <id>")
+  .description("Show a run record")
+  .action((id) => {
+    const run = readRun(process.cwd(), id);
+    if (!run) {
+      console.log(p(`Run not found: ${id}`));
+      return;
+    }
+    console.log(JSON.stringify(run, null, 2));
   });
 
 program
   .command("init")
   .description("Initialize Asura configuration")
   .action(async () => {
-    console.log("Welcome to Asura. Let's set up your AI provider.");
+    console.log(p("Welcome to Asura. Let's set up your AI provider."));
     const { provider, apiKey } = await inquirer.prompt([
       {
         type: "list",
@@ -207,13 +269,13 @@ program
     ]);
 
     if (!keyMap[provider]) {
-      console.error("Invalid provider selection.");
+      console.error(p("Invalid provider selection."));
       return;
     }
 
     setConfig("provider", provider);
     setConfig(keyMap[provider], apiKey);
-    console.log(`Asura initialized successfully with ${provider}.`);
+    console.log(p(`Asura initialized successfully with ${provider}.`));
   });
 
 program
@@ -230,7 +292,7 @@ program
     ]);
 
     setConfig("provider", provider);
-    console.log(`Provider set to ${provider}.`);
+    console.log(p(`Provider set to ${provider}.`));
   });
 
 program.parse(process.argv);

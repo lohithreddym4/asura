@@ -54,9 +54,15 @@ export class MemoryStore {
         end_line INTEGER NOT NULL,
         content TEXT NOT NULL,
         tokens TEXT NOT NULL,
+        metadata TEXT NOT NULL DEFAULT '{}',
         updated_at INTEGER NOT NULL
       )
     `).run();
+
+    const columns = this.db.prepare(`PRAGMA table_info(documents)`).all();
+    if (!columns.some(column => column.name === "metadata")) {
+      this.db.prepare(`ALTER TABLE documents ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'`).run();
+    }
 
     this.db.prepare(`
       CREATE INDEX IF NOT EXISTS idx_documents_path
@@ -115,11 +121,12 @@ export class MemoryStore {
         path,
         start_line,
         end_line,
-        content,
-        tokens,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+          content,
+          tokens,
+          metadata,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const tx = this.db.transaction((rows) => {
@@ -132,6 +139,7 @@ export class MemoryStore {
           row.endLine,
           row.content,
           JSON.stringify(row.tokens),
+          JSON.stringify(row.metadata || {}),
           row.updatedAt
         );
       }
@@ -144,13 +152,14 @@ export class MemoryStore {
 
   allDocuments() {
     const rows = this.db.prepare(`
-      SELECT id, path, start_line AS startLine, end_line AS endLine, content, tokens, updated_at AS updatedAt
+      SELECT id, path, start_line AS startLine, end_line AS endLine, content, tokens, metadata, updated_at AS updatedAt
       FROM documents
     `).all();
 
     return rows.map(row => ({
       ...row,
-      tokens: JSON.parse(row.tokens)
+      tokens: JSON.parse(row.tokens),
+      metadata: JSON.parse(row.metadata || "{}")
     }));
   }
   
