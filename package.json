@@ -1,6 +1,6 @@
 {
   "name": "asura-agent",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Schema-validated autonomous CLI agent with guarded execution, local RAG, and memory-scoped planning.",
   "type": "module",
   "bin": {

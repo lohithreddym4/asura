@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import readline from "readline";
 import chalk from "chalk";
+import { runInExternalTerminal } from "./externalTerminal.js";
 
 const DANGEROUS_PATTERNS = [
   /\brm\s+-rf\b/i,
@@ -76,7 +77,7 @@ export async function executeCommands(commands, { dryRun, autoYes }) {
     }
 
     try {
-      await run(normalizeQuotes(cmd));
+      await runCommand(normalizeQuotes(cmd));
     } catch (err) {
       throw new CommandExecutionError(cmd, err.message, err.output || "");
     }
@@ -117,7 +118,29 @@ function isChained(cmd) {
   return BLOCK_PATTERNS.some(p => cmd.includes(p));
 }
 
-function run(command) {
+async function runCommand(command) {
+  const externalResult = await runInExternalTerminal(command);
+  if (externalResult) {
+    console.log(chalk.gray(`Opened command in a separate terminal. Log: ${externalResult.logPath}`));
+
+    if (externalResult.code !== 0) {
+      const output = trimOutput(externalResult.output || "");
+      const err = new Error([
+        `Command exited with code ${externalResult.code}`,
+        `Log: ${externalResult.logPath}`,
+        output ? `Recent command output:\n${output}` : ""
+      ].filter(Boolean).join("\n"));
+      err.output = output;
+      throw err;
+    }
+
+    return;
+  }
+
+  return runInline(command);
+}
+
+function runInline(command) {
   return new Promise((resolve, reject) => {
     let output = "";
     const proc = spawn(command, {
