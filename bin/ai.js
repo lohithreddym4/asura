@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import inquirer from "inquirer";
 import readline from "readline/promises";
-import { setConfig } from "../src/config/store.js";
+import { setConfig,getConfig } from "../src/config/store.js";
 import { buildRagIndex, formatRetrievedContext, retrieveDocuments } from "../src/memory/rag.js";
 import { MemoryStore } from "../src/memory/store.js";
 import { setExecutionPolicy } from "../src/policy/executionPolicy.js";
@@ -25,12 +25,22 @@ const providerChoices = [
   { name: "Anthropic", value: "anthropic" }
 ];
 
+
+
 const keyMap = {
   openai: "openaiApiKey",
   groq: "groqApiKey",
   gemini: "geminiApiKey",
   mistral: "mistralApiKey",
   anthropic: "anthropicApiKey"
+};
+
+const modelKeyMap = {
+  openai: "openaiModel",
+  groq: "groqModel",
+  gemini: "geminiModel",
+  mistral: "mistralModel",
+  anthropic: "anthropicModel"
 };
 
 const memoryCmd = program
@@ -247,7 +257,7 @@ program
   .description("Initialize Asura configuration")
   .action(async () => {
     console.log(p("Welcome to Asura. Let's set up your AI provider."));
-    const { provider, apiKey } = await inquirer.prompt([
+    const { provider, apiKey, model } = await inquirer.prompt([
       {
         type: "list",
         name: "provider",
@@ -255,26 +265,28 @@ program
         choices: providerChoices
       },
       {
+        type: "input",
+        name: "model",
+        message: "Enter model (e.g. gpt-5-mini):",
+        validate: input =>
+          input.trim() ? true : "Model cannot be empty."
+      },
+      {
         type: "password",
         name: "apiKey",
         message: "Enter your API key:",
         mask: "*",
-        validate: (input) => {
-          if (!input || input.trim() === "") {
-            return "API key cannot be empty.";
-          }
-          return true;
-        }
+        validate: input =>
+          input.trim() ? true : "API key cannot be empty."
       }
     ]);
 
-    if (!keyMap[provider]) {
-      console.error(p("Invalid provider selection."));
-      return;
+    if (!(provider in keyMap)) {
+      throw new Error(`Unsupported provider: ${provider}`);
     }
-
     setConfig("provider", provider);
-    setConfig(keyMap[provider], apiKey);
+    setConfig(modelKeyMap[provider], model.trim());
+    setConfig(keyMap[provider], apiKey.trim());
     console.log(p(`Asura initialized successfully with ${provider}.`));
   });
 
@@ -282,17 +294,40 @@ program
   .command("provider")
   .description("Change AI provider")
   .action(async () => {
-    const { provider } = await inquirer.prompt([
+    const { provider, model } = await inquirer.prompt([
       {
         type: "list",
         name: "provider",
         message: "Select AI provider:",
         choices: providerChoices
+      },
+      {
+        type: "input",
+        name: "model",
+        message: "Enter model (e.g. gpt-5-mini):",
+        validate: input =>
+          input.trim() ? true : "Model cannot be empty."
+      },
+      {
+        type: "password",
+        name: "apiKey",
+        message: "Enter your API key (leave blank to keep existing):",
+        mask: "*"
       }
     ]);
 
+    if (!(provider in keyMap)) {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+
     setConfig("provider", provider);
-    console.log(p(`Provider set to ${provider}.`));
+    setConfig(modelKeyMap[provider], model.trim());
+    console.log(
+      p(
+        `Provider : ${provider}\n` +
+        `Model    : ${model.trim()}`
+      )
+    );
   });
 
 program.parse(process.argv);

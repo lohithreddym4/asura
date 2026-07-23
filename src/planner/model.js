@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+dotenv.config({ quiet: true });
 import Groq from "groq-sdk";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -14,8 +15,9 @@ const planCache = new Map();
 let chatModelInstance = null;
 
 class OpenAIPlannerModel extends SimpleChatModel {
-  constructor(apiKey) {
+  constructor(apiKey, model) {
     super({});
+    this.model = model;
     this.openai = new OpenAI({ apiKey });
   }
 
@@ -25,17 +27,19 @@ class OpenAIPlannerModel extends SimpleChatModel {
 
   async _call(messages) {
     const res = await this.openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: this.model,
       temperature: 0,
       messages: toOpenAIMessages(messages)
     });
+
     return res.choices[0].message.content;
   }
 }
 
 class GroqPlannerModel extends SimpleChatModel {
-  constructor(apiKey) {
+  constructor(apiKey, model) {
     super({});
+    this.model = model;
     this.groq = new Groq({ apiKey });
   }
 
@@ -45,17 +49,19 @@ class GroqPlannerModel extends SimpleChatModel {
 
   async _call(messages) {
     const res = await this.groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: this.model,
       temperature: 0,
       messages: toOpenAIMessages(messages)
     });
+
     return res.choices[0].message.content;
   }
 }
 
 class GeminiPlannerModel extends SimpleChatModel {
-  constructor(apiKey) {
+  constructor(apiKey, model) {
     super({});
+    this.model = model;
     this.gemini = new GoogleGenerativeAI(apiKey);
   }
 
@@ -65,16 +71,18 @@ class GeminiPlannerModel extends SimpleChatModel {
 
   async _call(messages) {
     const model = this.gemini.getGenerativeModel({
-      model: "models/gemini-flash-latest"
+      model: this.model
     });
+
     const result = await model.generateContent(messagesToText(messages));
     return result.response.text();
   }
 }
 
 class MistralPlannerModel extends SimpleChatModel {
-  constructor(apiKey) {
+  constructor(apiKey, model) {
     super({});
+    this.model = model;
     this.mistral = new Mistral({ apiKey });
   }
 
@@ -84,17 +92,19 @@ class MistralPlannerModel extends SimpleChatModel {
 
   async _call(messages) {
     const res = await this.mistral.chat.complete({
-      model: "mistral-large-latest",
+      model: this.model,
       temperature: 0,
       messages: toOpenAIMessages(messages)
     });
+
     return res.choices[0].message.content;
   }
 }
 
 class AnthropicPlannerModel extends SimpleChatModel {
-  constructor(apiKey) {
+  constructor(apiKey, model) {
     super({});
+    this.model = model;
     this.anthropic = new Anthropic({ apiKey });
   }
 
@@ -114,14 +124,18 @@ class AnthropicPlannerModel extends SimpleChatModel {
       .join("\n\n");
 
     const res = await this.anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: this.model,
       max_tokens: 2048,
       temperature: 0,
       system,
       messages: [
-        { role: "user", content: userContent }
+        {
+          role: "user",
+          content: userContent
+        }
       ]
     });
+
     return res.content[0].text;
   }
 }
@@ -129,7 +143,6 @@ class AnthropicPlannerModel extends SimpleChatModel {
 function initializeProvider() {
   if (chatModelInstance) return;
 
-  dotenv.config({ quiet: true });
   const config = getConfig();
   const provider = config.provider;
 
@@ -137,32 +150,51 @@ function initializeProvider() {
     throw new Error("No AI provider configured. Run: asura init");
   }
 
-  const keyMap = {
-    openai: config.openaiApiKey,
-    groq: config.groqApiKey,
-    gemini: config.geminiApiKey,
-    mistral: config.mistralApiKey,
-    anthropic: config.anthropicApiKey
+  const providers = {
+    openai: {
+      apiKey: config.openaiApiKey,
+      model: config.openaiModel,
+      create: (key, model) => new OpenAIPlannerModel(key, model),
+    },
+    groq: {
+      apiKey: config.groqApiKey,
+      model: config.groqModel,
+      create: (key, model) => new GroqPlannerModel(key, model),
+    },
+    gemini: {
+      apiKey: config.geminiApiKey,
+      model: config.geminiModel,
+      create: (key, model) => new GeminiPlannerModel(key, model),
+    },
+    mistral: {
+      apiKey: config.mistralApiKey,
+      model: config.mistralModel,
+      create: (key, model) => new MistralPlannerModel(key, model),
+    },
+    anthropic: {
+      apiKey: config.anthropicApiKey,
+      model: config.anthropicModel,
+      create: (key, model) => new AnthropicPlannerModel(key, model),
+    },
   };
 
-  const apiKey = keyMap[provider];
-  if (!apiKey) {
-    throw new Error(`API key not configured for "${provider}". Run: asura init`);
+  const selected = providers[provider];
+
+  if (!selected) {
+    throw new Error(`Invalid provider "${provider}".`);
   }
 
-  const modelMap = {
-    openai: () => new OpenAIPlannerModel(apiKey),
-    groq: () => new GroqPlannerModel(apiKey),
-    gemini: () => new GeminiPlannerModel(apiKey),
-    mistral: () => new MistralPlannerModel(apiKey),
-    anthropic: () => new AnthropicPlannerModel(apiKey)
-  };
-
-  if (!modelMap[provider]) {
-    throw new Error("Invalid provider configuration.");
+  if (!selected.apiKey) {
+    throw new Error(
+      `API key not configured for "${provider}". Run: asura init`
+    );
   }
 
-  chatModelInstance = modelMap[provider]();
+  if (!selected.model) {
+    throw new Error(`No model configured for "${provider}".`);
+  }
+
+  chatModelInstance = selected.create(selected.apiKey, selected.model);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
